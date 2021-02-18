@@ -1,71 +1,73 @@
-const FILES_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/dist/app.bundle.js',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
-];
-
-const CACHE_NAME = "static-cache-v1";
+const CACHE_NAME = "my-site-cache-v1";
 const DATA_CACHE_NAME = "data-cache-v1";
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(FILES_TO_CACHE))
-      .then(self.skipWaiting())
+const FILES_TO_CACHE = [
+  "/",
+  "/indexedDb.js",
+  "/index.js",
+  "/manifest.json",
+  "/styles.css",
+  "/icons/icon-192x192.png",
+  "/icons/icon-512x512.png"
+];
+
+ //Install service worker
+ self.addEventListener('install', evt => {
+  evt.waitUntil(
+      caches.open(CACHE_NAME).then(cache =>{
+          console.log('Your files were pre-cached successfully');
+          return cache.addAll(FILES_TO_CACHE);
+      })
   );
+  self.skipWaiting();
 });
 
-// The activate handler takes care of cleaning up old caches.
-self.addEventListener('activate', (event) => {
-  const currentCaches = [CACHE_NAME, DATA_CACHE_NAME];
-  event.waitUntil(
-    caches
-      .keys()
-      .then((cacheNames) => {
-        return cacheNames.filter((cacheName) => !currentCaches.includes(cacheName));
+// Activate Service Worker
+self.addEventListener('activate', evt => {
+  evt.waitUntil(
+      caches.keys().then(keyList => {
+          return Promise.all(
+              keyList.map( key => {
+                  if (key !== CACHE_NAME && key !== DATA_CACHE_NAME) {
+                      console.log('Removing old cache data', key);
+                      return caches.delete(key);
+                  }
+              })
+          );
       })
-      .then((cachesToDelete) => {
-        return Promise.all(
-          cachesToDelete.map((cacheToDelete) => {
-            return caches.delete(cacheToDelete);
+  );
+  self.clients.claim();
+});
+
+// 5. Fetch Files
+self.addEventListener('fetch',  evt =>{
+  if (evt.request.url.includes('/api/')) {
+      console.log('[Service Worker] Fetch (data)', evt.request.url);
+
+      evt.respondWith(
+          caches.open(DATA_CACHE_NAME).then(cache => {
+              return fetch(evt.request)
+                  .then(response  => {
+                      if (response.status === 200) {
+                          cache.put(evt.request.url, response.clone());
+                      }
+                      return response;
+                  })
+                  .catch(err => {
+                      return cache.match(evt.request);
+                  });
           })
-        );
-      })
-      .then(() => self.clients.claim())
-  );
-});
+      );
 
-self.addEventListener("fetch", (evt) => {
-  if (evt.request.url.includes("/api/") && evt.request.method === "GET") {
-    evt.respondWith(
-      caches
-        .open(DATA_CACHE_NAME)
-        .then((cache) => {
-          return fetch(evt.request)
-            .then((response) => {
-              if (response.status === 200) {
-                cache.put(evt.request, response.clone());
-              }
-
-              return response;
-            })
-            .catch(() => {
-              return cache.match(evt.request);
-            });
-        })
-        .catch((err) => console.log(err))
-    );
-
-    return;
+      return;
   }
+
   evt.respondWith(
-    caches.match(evt.request).then((response) => {
-      return response || fetch(evt.request);
-    })
+      caches.open(CACHE_NAME).then( cache => {
+          return cache.match(evt.request).then(response => {
+              return response || fetch(evt.request)
+          });
+
+      })
   );
 });
-
